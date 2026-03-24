@@ -30,6 +30,10 @@ const adminApprovalPatchSchema = z
   .object({
     title: z.string().min(1).max(500).optional(),
     description: z.string().max(20000).nullable().optional(),
+    conditionNotes: z.string().nullable().optional(),
+    discountPercent: z
+      .union([z.literal(30), z.literal(40), z.literal(50), z.literal(60), z.null()])
+      .optional(),
     salePrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     selectedImageUrls: z.array(z.string().min(1)).max(10).optional(),
   })

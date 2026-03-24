@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { normalizeBarcodeDigits } from "@/lib/barcode-normalize";
 
 export type MemoryManifest = {
   id: string;
@@ -97,6 +98,16 @@ export function memoryListItems(opts: {
 
 export function memoryGetItem(id: string): MemoryItem | undefined {
   return getStore().items.find((i) => i.id === id);
+}
+
+/** Pending items whose stored UPC matches normalized digits (for barcode scan). */
+export function memoryListPendingByUpcDigits(normalizedDigits: string): MemoryItem[] {
+  return getStore().items.filter(
+    (i) =>
+      i.status === "pending_review" &&
+      i.upc &&
+      normalizeBarcodeDigits(i.upc) === normalizedDigits,
+  );
 }
 
 export function memoryUpdateItem(id: string, patch: Partial<MemoryItem>): boolean {

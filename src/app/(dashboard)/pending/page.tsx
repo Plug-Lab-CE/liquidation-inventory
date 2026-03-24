@@ -1,5 +1,6 @@
 "use client";
 
+import { BarcodeScanModal } from "@/components/BarcodeScanModal";
 import { ItemEditor } from "@/components/ItemEditor";
 import type { ItemDto } from "@/lib/api-types";
 import { useCallback, useEffect, useState } from "react";
@@ -12,6 +13,7 @@ export default function PendingPage() {
   const [selected, setSelected] = useState<ItemDto | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
   const load = useCallback(async (p = 1) => {
     setLoading(true);
@@ -56,6 +58,11 @@ export default function PendingPage() {
     });
   }
 
+  const onScanFound = useCallback((item: ItemDto) => {
+    setSelected(item);
+    setScanOpen(false);
+  }, []);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -67,6 +74,13 @@ export default function PendingPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {bulkMsg && <span className="text-sm text-zinc-600">{bulkMsg}</span>}
+          <button
+            type="button"
+            onClick={() => setScanOpen(true)}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+          >
+            Scan barcode
+          </button>
           <button
             type="button"
             disabled={selectedIds.size === 0}
@@ -135,6 +149,12 @@ export default function PendingPage() {
           Next
         </button>
       </div>
+
+      <BarcodeScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onFound={onScanFound}
+      />
 
       {selected && (
         <ItemEditor

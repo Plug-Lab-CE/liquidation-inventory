@@ -75,7 +75,9 @@ export default function ApprovalPage() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-zinc-900">{it.title}</p>
                 <p className="text-xs text-zinc-500">
-                  Sale ${it.salePrice ?? "—"} · Retail ${it.unitRetail ?? "—"} · Qty {it.quantity}
+                  Sale ${it.salePrice ?? "—"}
+                  {it.discountPercent != null ? ` (${it.discountPercent}% off)` : ""} · Retail $
+                  {it.unitRetail ?? "—"} · Qty {it.quantity}
                 </p>
               </div>
               <button

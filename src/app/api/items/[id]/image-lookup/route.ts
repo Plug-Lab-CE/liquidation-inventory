@@ -1,9 +1,12 @@
+import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db";
 import { inventoryItems } from "@/db/schema";
 import { requireSession } from "@/lib/api-auth";
+import { fetchRemoteImageForSave } from "@/lib/fetch-remote-image";
 import { memoryGetItem, memoryUpdateItem } from "@/lib/memory-store";
 import { lookupProductImageUrls } from "@/lib/openai/image-lookup";
+import { savePublicImage } from "@/lib/storage";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -12,6 +15,23 @@ const fetchHeaders = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 };
+
+async function persistCandidateImagesFromUrls(
+  itemId: string,
+  urls: string[],
+  max: number,
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const u of urls) {
+    if (out.length >= max) break;
+    const got = await fetchRemoteImageForSave(u);
+    if (!got) continue;
+    const name = `${itemId}-${randomUUID()}.${got.extension}`;
+    const publicPath = await savePublicImage(name, got.buffer);
+    out.push(publicPath);
+  }
+  return out;
+}
 
 async function probeUrl(url: string): Promise<boolean> {
   try {
@@ -67,18 +87,26 @@ export async function POST(_req: Request, { params }: Params) {
         if (await probeUrl(u)) verified.push(u);
       }
 
-      const nextUrls = verified.length ? verified : urls;
-      memoryUpdateItem(id, {
-        candidateImageUrls: nextUrls.length ? nextUrls : urls,
-      });
+      const sourceUrls = verified.length ? verified : urls;
+      const persisted = await persistCandidateImagesFromUrls(id, sourceUrls, 5);
+      const candidateImageUrls =
+        persisted.length > 0 ? persisted : sourceUrls.slice(0, 5);
+
+      memoryUpdateItem(id, { candidateImageUrls });
+
+      let message: string | undefined;
+      if (verified.length === 0 && urls.length === 0) {
+        message =
+          "No images returned. Check OPENAI_API_KEY / web search availability, or upload photos.";
+      } else if (persisted.length === 0 && sourceUrls.length > 0) {
+        message =
+          "Found image links but could not download them for preview (blocked or invalid). Try again or use drag-and-drop / upload.";
+      }
 
       return Response.json({
-        candidateImageUrls: nextUrls.length ? nextUrls : urls,
+        candidateImageUrls,
         source,
-        message:
-          verified.length === 0 && urls.length === 0
-            ? "No images returned. Try manual URL upload or check OPENAI_API_KEY / web search availability."
-            : undefined,
+        message,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Image lookup failed";
@@ -106,21 +134,32 @@ export async function POST(_req: Request, { params }: Params) {
       if (await probeUrl(u)) verified.push(u);
     }
 
+    const sourceUrls = verified.length ? verified : urls;
+    const persisted = await persistCandidateImagesFromUrls(id, sourceUrls, 5);
+    const candidateImageUrls =
+      persisted.length > 0 ? persisted : sourceUrls.slice(0, 5);
+
     await db
       .update(inventoryItems)
       .set({
-        candidateImageUrls: verified.length ? verified : urls,
+        candidateImageUrls,
         updatedAt: new Date(),
       })
       .where(eq(inventoryItems.id, id));
 
+    let message: string | undefined;
+    if (verified.length === 0 && urls.length === 0) {
+      message =
+        "No images returned. Check OPENAI_API_KEY / web search availability, or upload photos.";
+    } else if (persisted.length === 0 && sourceUrls.length > 0) {
+      message =
+        "Found image links but could not download them for preview (blocked or invalid). Try again or use drag-and-drop / upload.";
+    }
+
     return Response.json({
-      candidateImageUrls: verified.length ? verified : urls,
+      candidateImageUrls,
       source,
-      message:
-        verified.length === 0 && urls.length === 0
-          ? "No images returned. Try manual URL upload or check OPENAI_API_KEY / web search availability."
-          : undefined,
+      message,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Image lookup failed";

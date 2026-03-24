@@ -16,6 +16,13 @@ const LOOKUP_STAGE_MESSAGES: { ms: number; label: string }[] = [
   { ms: 16_000, label: "Saving candidate thumbnails to this item…" },
 ];
 
+const DESCRIPTION_STAGE_MESSAGES: { ms: number; label: string }[] = [
+  { ms: 0, label: "Sending title, brand, and item details to OpenAI…" },
+  { ms: 2400, label: "Drafting a clear product description…" },
+  { ms: 5200, label: "Matching tone to category and condition…" },
+  { ms: 8800, label: "Polishing listing copy…" },
+];
+
 const DISCOUNTS = [30, 40, 50, 60] as const;
 
 type Mode = "pending" | "approval";
@@ -37,6 +44,9 @@ export function ItemEditor({
   const [lookupProgress, setLookupProgress] = useState<number | null>(null);
   const [lookupLabel, setLookupLabel] = useState("");
   const lookupTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [descriptionProgress, setDescriptionProgress] = useState<number | null>(null);
+  const [descriptionLabel, setDescriptionLabel] = useState("");
+  const descriptionTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const photoDropDepth = useRef(0);
   const [photosDropActive, setPhotosDropActive] = useState(false);
 
@@ -47,11 +57,24 @@ export function ItemEditor({
     }
   }, []);
 
+  const clearDescriptionTicker = useCallback(() => {
+    if (descriptionTickRef.current) {
+      clearInterval(descriptionTickRef.current);
+      descriptionTickRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     setLocal(item);
   }, [item]);
 
-  useEffect(() => () => clearLookupTicker(), [clearLookupTicker]);
+  useEffect(
+    () => () => {
+      clearLookupTicker();
+      clearDescriptionTicker();
+    },
+    [clearLookupTicker, clearDescriptionTicker],
+  );
 
   const patch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -153,6 +176,7 @@ export function ItemEditor({
   async function runImageLookup() {
     setBusy(true);
     setMsg(null);
+    clearDescriptionTicker();
     clearLookupTicker();
     setLookupProgress(0);
     setLookupLabel(LOOKUP_STAGE_MESSAGES[0]!.label);
@@ -199,6 +223,78 @@ export function ItemEditor({
       setMsg("Lookup failed");
     } finally {
       clearLookupTicker();
+      setBusy(false);
+    }
+  }
+
+  async function runGenerateDescription() {
+    setBusy(true);
+    setMsg(null);
+    clearLookupTicker();
+    clearDescriptionTicker();
+    setDescriptionProgress(0);
+    setDescriptionLabel(DESCRIPTION_STAGE_MESSAGES[0]!.label);
+
+    const started = Date.now();
+    let fakePct = 0;
+    descriptionTickRef.current = setInterval(() => {
+      const elapsed = Date.now() - started;
+      let label = DESCRIPTION_STAGE_MESSAGES[0]!.label;
+      for (let i = DESCRIPTION_STAGE_MESSAGES.length - 1; i >= 0; i--) {
+        if (elapsed >= DESCRIPTION_STAGE_MESSAGES[i]!.ms) {
+          label = DESCRIPTION_STAGE_MESSAGES[i]!.label;
+          break;
+        }
+      }
+      setDescriptionLabel(label);
+      fakePct += (92 - fakePct) * 0.048 + Math.random() * 0.4;
+      setDescriptionProgress(Math.min(Math.round(fakePct), 91));
+    }, 280);
+
+    try {
+      const res = await fetch(`/api/items/${item.id}/generate-description`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: local.title,
+          brand: local.brand,
+          upc: local.upc,
+          category: local.category,
+          condition: local.condition,
+          conditionNotes: local.conditionNotes,
+          quantity: local.quantity,
+          unitRetail: local.unitRetail,
+          existingDescription: local.description ?? null,
+        }),
+      });
+      clearDescriptionTicker();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDescriptionProgress(null);
+        setDescriptionLabel("");
+        setMsg(typeof data.error === "string" ? data.error : "Could not generate description");
+        return;
+      }
+      const description = typeof data.description === "string" ? data.description : "";
+      if (!description) {
+        setDescriptionProgress(null);
+        setDescriptionLabel("");
+        setMsg("Empty description from AI");
+        return;
+      }
+      setDescriptionProgress(100);
+      setDescriptionLabel("Finished — description saved");
+      await patch({ description });
+      window.setTimeout(() => {
+        setDescriptionProgress(null);
+        setDescriptionLabel("");
+      }, 900);
+    } catch {
+      setDescriptionProgress(null);
+      setDescriptionLabel("");
+      setMsg("Could not generate description");
+    } finally {
+      clearDescriptionTicker();
       setBusy(false);
     }
   }
@@ -330,7 +426,36 @@ export function ItemEditor({
                   />
                 </label>
                 <label className="block">
-                  <span className="font-medium text-zinc-800">Description</span>
+                  <span className="font-medium text-zinc-800">Condition notes</span>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    From pending review (editable before publish)
+                  </p>
+                  <textarea
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900"
+                    rows={3}
+                    value={local.conditionNotes ?? ""}
+                    onChange={(e) =>
+                      setLocal((prev) => ({ ...prev, conditionNotes: e.target.value }))
+                    }
+                    onBlur={() => {
+                      if ((local.conditionNotes ?? "") !== (item.conditionNotes ?? "")) {
+                        void patch({ conditionNotes: local.conditionNotes || null });
+                      }
+                    }}
+                  />
+                </label>
+                <label className="block">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-zinc-800">Description</span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void runGenerateDescription()}
+                      className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                    >
+                      Write with AI
+                    </button>
+                  </div>
                   <textarea
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                     rows={4}
@@ -342,19 +467,83 @@ export function ItemEditor({
                       }
                     }}
                   />
+                  {descriptionProgress !== null && (
+                    <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="mb-2 flex items-start justify-between gap-3 text-xs">
+                        <span className="font-medium leading-snug text-zinc-800">
+                          {descriptionLabel}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-zinc-500">
+                          {descriptionProgress}%
+                        </span>
+                      </div>
+                      <div
+                        className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200"
+                        role="progressbar"
+                        aria-valuenow={descriptionProgress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label="Write with AI progress"
+                      >
+                        <div
+                          className="h-full rounded-full bg-zinc-900 transition-[width] duration-300 ease-out"
+                          style={{ width: `${descriptionProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </label>
                 <label className="block">
                   <span className="font-medium text-zinc-800">Sale price (override)</span>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
-                    value={local.salePrice ?? ""}
-                    onChange={(e) => setLocal((p) => ({ ...p, salePrice: e.target.value }))}
-                    onBlur={() => {
-                      if (local.salePrice !== item.salePrice) {
-                        void patch({ salePrice: local.salePrice || null });
-                      }
-                    }}
-                  />
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Pick a discount to recalculate sale from unit retail, or edit the price directly.
+                  </p>
+                  <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                    <div className="flex min-h-[42px] min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-zinc-300 bg-white focus-within:ring-2 focus-within:ring-zinc-400">
+                      <span
+                        className="flex shrink-0 items-center border-r border-zinc-200 bg-zinc-50 px-3 font-mono text-sm text-zinc-600"
+                        aria-hidden
+                      >
+                        $
+                      </span>
+                      <input
+                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 font-mono outline-none"
+                        inputMode="decimal"
+                        value={local.salePrice ?? ""}
+                        onChange={(e) => setLocal((p) => ({ ...p, salePrice: e.target.value }))}
+                        onBlur={() => {
+                          if (local.salePrice !== item.salePrice) {
+                            void patch({ salePrice: local.salePrice || null });
+                          }
+                        }}
+                      />
+                    </div>
+                    <div
+                      className="shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 p-2 sm:w-[148px]"
+                      title="Change discount — sale price updates from unit retail"
+                    >
+                      <p className="mb-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                        Off retail
+                      </p>
+                      <div className="grid grid-cols-2 gap-1">
+                        {DISCOUNTS.map((d) => (
+                          <button
+                            key={d}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void patch({ discountPercent: d })}
+                            className={`rounded-md px-2 py-1.5 text-xs font-medium ${
+                              local.discountPercent === d
+                                ? "bg-zinc-900 text-white"
+                                : "bg-white text-zinc-800 ring-1 ring-zinc-200 hover:bg-zinc-100"
+                            } disabled:opacity-50`}
+                          >
+                            {d}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </label>
                 <p className="text-zinc-500">Compare-at on Shopify uses unit retail: ${local.unitRetail}</p>
               </>
