@@ -29,6 +29,32 @@ Set `AUTH_DEV_BYPASS=true` in `.env.local` (development only; see `.env.example`
 | `npm run db:push` | Push Drizzle schema to DB  |
 | `npm run db:seed` | Seed users                 |
 
+## Publish to GitHub
+
+Git is initialized on `main` with an initial commit. If GitHub CLI is logged in:
+
+```bash
+cd liquidation-inventory
+gh auth login
+gh repo create liquidation-app --private --source=. --remote=origin --push --description "Liquidation inventory web app"
+```
+
+Use another repo name if you prefer (GitHub URLs cannot contain spaces; `liquidation-app` or `Liquidation-App` are typical).
+
+**Without `gh`:** create an empty repository named e.g. `liquidation-app` on GitHub, then:
+
+```bash
+git remote add origin https://github.com/YOUR_USERNAME/liquidation-app.git
+git push -u origin main
+```
+
+Set your commit identity if needed:
+
+```bash
+git config user.name "Your Name"
+git config user.email "your-email@example.com"
+```
+
 ## License
 
 Private / your use only unless you add a license.
