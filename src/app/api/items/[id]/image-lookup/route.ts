@@ -7,24 +7,38 @@ import { lookupProductImageUrls } from "@/lib/openai/image-lookup";
 
 type Params = { params: Promise<{ id: string }> };
 
+const fetchHeaders = {
+  Accept: "image/*,*/*;q=0.8",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+};
+
 async function probeUrl(url: string): Promise<boolean> {
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 8000);
-    const res = await fetch(url, { method: "HEAD", signal: c.signal });
+    const res = await fetch(url, { method: "HEAD", signal: c.signal, headers: fetchHeaders });
     clearTimeout(t);
     const ct = res.headers.get("content-type") ?? "";
-    return res.ok && (ct.startsWith("image/") || ct === "application/octet-stream");
+    if (res.ok && (ct.startsWith("image/") || ct === "application/octet-stream")) return true;
   } catch {
-    try {
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 8000);
-      const res = await fetch(url, { method: "GET", signal: c.signal });
-      clearTimeout(t);
-      return res.ok;
-    } catch {
-      return false;
-    }
+    /* try GET */
+  }
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 8000);
+    const res = await fetch(url, {
+      method: "GET",
+      signal: c.signal,
+      headers: fetchHeaders,
+    });
+    clearTimeout(t);
+    const ct = res.headers.get("content-type") ?? "";
+    return (
+      res.ok && (ct.startsWith("image/") || ct === "application/octet-stream" || ct === "")
+    );
+  } catch {
+    return false;
   }
 }
 

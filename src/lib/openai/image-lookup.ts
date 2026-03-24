@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeScrapedImageUrl } from "@/lib/remote-image-url";
 import { getOpenAI, openaiModel } from "@/lib/openai/client";
 
 const urlsSchema = z.object({
@@ -7,7 +8,9 @@ const urlsSchema = z.object({
 
 function extractUrlsFromText(text: string): string[] {
   const re = /https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s"'<>]*)?/gi;
-  return [...new Set(text.match(re) ?? [])].slice(0, 8);
+  const raw = text.match(re) ?? [];
+  const cleaned = raw.map((u) => normalizeScrapedImageUrl(u)).filter(Boolean);
+  return [...new Set(cleaned)].slice(0, 8);
 }
 
 /**
@@ -62,7 +65,9 @@ export async function lookupProductImageUrls(input: {
   let urls: string[] = [];
   try {
     const parsed = urlsSchema.safeParse(JSON.parse(text));
-    if (parsed.success) urls = parsed.data.imageUrls;
+    if (parsed.success) {
+      urls = parsed.data.imageUrls.map((u) => normalizeScrapedImageUrl(u)).filter(Boolean);
+    }
   } catch {
     urls = extractUrlsFromText(text);
   }

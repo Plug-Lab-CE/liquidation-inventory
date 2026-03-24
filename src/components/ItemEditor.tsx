@@ -1,7 +1,16 @@
 "use client";
 
 import type { ItemDto } from "@/lib/api-types";
-import { useCallback, useEffect, useState } from "react";
+import { imageSrcForDisplay } from "@/lib/image-display";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const LOOKUP_STAGE_MESSAGES: { ms: number; label: string }[] = [
+  { ms: 0, label: "Sending product title, brand, and UPC to OpenAI…" },
+  { ms: 2800, label: "Searching the web for product photos (when web search is available)…" },
+  { ms: 6500, label: "Collecting direct image URLs from search results…" },
+  { ms: 11000, label: "Checking each URL returns real image data…" },
+  { ms: 16_000, label: "Saving candidate thumbnails to this item…" },
+];
 
 const DISCOUNTS = [30, 40, 50, 60] as const;
 
@@ -22,10 +31,22 @@ export function ItemEditor({
   const [manualUrl, setManualUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [lookupProgress, setLookupProgress] = useState<number | null>(null);
+  const [lookupLabel, setLookupLabel] = useState("");
+  const lookupTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearLookupTicker = useCallback(() => {
+    if (lookupTickRef.current) {
+      clearInterval(lookupTickRef.current);
+      lookupTickRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setLocal(item);
   }, [item]);
+
+  useEffect(() => () => clearLookupTicker(), [clearLookupTicker]);
 
   const patch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -53,16 +74,54 @@ export function ItemEditor({
   async function runImageLookup() {
     setBusy(true);
     setMsg(null);
-    const res = await fetch(`/api/items/${item.id}/image-lookup`, { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setMsg(data.error ?? "Lookup failed");
-      return;
+    clearLookupTicker();
+    setLookupProgress(0);
+    setLookupLabel(LOOKUP_STAGE_MESSAGES[0]!.label);
+
+    const started = Date.now();
+    let fakePct = 0;
+    lookupTickRef.current = setInterval(() => {
+      const elapsed = Date.now() - started;
+      let label = LOOKUP_STAGE_MESSAGES[0]!.label;
+      for (let i = LOOKUP_STAGE_MESSAGES.length - 1; i >= 0; i--) {
+        if (elapsed >= LOOKUP_STAGE_MESSAGES[i]!.ms) {
+          label = LOOKUP_STAGE_MESSAGES[i]!.label;
+          break;
+        }
+      }
+      setLookupLabel(label);
+      fakePct += (92 - fakePct) * 0.048 + Math.random() * 0.4;
+      setLookupProgress(Math.min(Math.round(fakePct), 91));
+    }, 280);
+
+    try {
+      const res = await fetch(`/api/items/${item.id}/image-lookup`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setLookupProgress(null);
+        setLookupLabel("");
+        setMsg(data.error ?? "Lookup failed");
+        return;
+      }
+
+      setLookupProgress(100);
+      setLookupLabel("Finished — thumbnails updated");
+      setLocal((prev) => ({ ...prev, candidateImageUrls: data.candidateImageUrls ?? [] }));
+      if (data.message) setMsg(data.message);
+      onSaved();
+      window.setTimeout(() => {
+        setLookupProgress(null);
+        setLookupLabel("");
+      }, 900);
+    } catch {
+      setLookupProgress(null);
+      setLookupLabel("");
+      setMsg("Lookup failed");
+    } finally {
+      clearLookupTicker();
+      setBusy(false);
     }
-    setLocal((prev) => ({ ...prev, candidateImageUrls: data.candidateImageUrls ?? [] }));
-    if (data.message) setMsg(data.message);
-    onSaved();
   }
 
   async function addManualUrl() {
@@ -251,6 +310,27 @@ export function ItemEditor({
               <p className="mt-1 text-xs text-zinc-500">
                 Select thumbnails to publish. AI uses OpenAI web search when available.
               </p>
+              {lookupProgress !== null && (
+                <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-3 text-xs">
+                    <span className="font-medium leading-snug text-zinc-800">{lookupLabel}</span>
+                    <span className="shrink-0 tabular-nums text-zinc-500">{lookupProgress}%</span>
+                  </div>
+                  <div
+                    className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200"
+                    role="progressbar"
+                    aria-valuenow={lookupProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="AI image lookup progress"
+                  >
+                    <div
+                      className="h-full rounded-full bg-zinc-900 transition-[width] duration-300 ease-out"
+                      style={{ width: `${lookupProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {candidates.length === 0 && (
                   <p className="col-span-full text-zinc-500">No images yet.</p>
@@ -268,9 +348,11 @@ export function ItemEditor({
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={url.startsWith("/") ? url : url}
+                        src={imageSrcForDisplay(url)}
                         alt=""
-                        className="aspect-square w-full object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="aspect-square w-full bg-zinc-100 object-cover"
                       />
                       {selected && (
                         <span className="absolute right-1 top-1 rounded bg-emerald-600 px-1.5 text-[10px] text-white">

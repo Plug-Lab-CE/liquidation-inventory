@@ -24,3 +24,17 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes manifest-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.manifest-progress-indeterminate {
+  width: 40%;
+  animation: manifest-progress-slide 1.2s ease-in-out infinite;
+}
