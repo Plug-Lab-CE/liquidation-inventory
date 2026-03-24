@@ -1,0 +1,26 @@
+export type ItemDto = {
+  id: string;
+  manifestId: string;
+  status: "pending_review" | "awaiting_approval" | "published";
+  title: string;
+  description: string | null;
+  quantity: number;
+  unitRetail: string | null;
+  extRetail: string | null;
+  brand: string | null;
+  upc: string | null;
+  category: string | null;
+  condition: string | null;
+  palletIds: string[];
+  lotIds: string[];
+  conditionNotes: string | null;
+  discountPercent: number | null;
+  salePrice: string | null;
+  accountedFor: boolean;
+  candidateImageUrls: string[];
+  selectedImageUrls: string[];
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
+};
