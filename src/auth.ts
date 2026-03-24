@@ -17,13 +17,14 @@ const nextAuth = NextAuth({
         password: { label: "Password", type: "password" },
       },
       authorize: async (credentials) => {
-        const { db } = await import("@/db");
+        const { getDb, isDatabaseConfigured } = await import("@/db");
         const { users } = await import("@/db/schema");
         const email = credentials?.email?.toString().trim().toLowerCase();
         const password = credentials?.password?.toString();
         if (!email || !password) return null;
+        if (!isDatabaseConfigured()) return null;
 
-        const [row] = await db
+        const [row] = await getDb()
           .select()
           .from(users)
           .where(eq(users.email, email))

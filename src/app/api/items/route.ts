@@ -1,37 +1,10 @@
 import { and, count, desc, eq } from "drizzle-orm";
-import { db } from "@/db";
+import { getDb, isDatabaseConfigured } from "@/db";
 import { inventoryItems } from "@/db/schema";
 import { requireSession } from "@/lib/api-auth";
 import { ITEMS_PAGE_SIZE } from "@/lib/limits";
-
-function serializeItem(row: typeof inventoryItems.$inferSelect) {
-  return {
-    id: row.id,
-    manifestId: row.manifestId,
-    status: row.status,
-    title: row.title,
-    description: row.description,
-    quantity: row.quantity,
-    unitRetail: row.unitRetail,
-    extRetail: row.extRetail,
-    brand: row.brand,
-    upc: row.upc,
-    category: row.category,
-    condition: row.condition,
-    palletIds: row.palletIds,
-    lotIds: row.lotIds,
-    conditionNotes: row.conditionNotes,
-    discountPercent: row.discountPercent,
-    salePrice: row.salePrice,
-    accountedFor: row.accountedFor,
-    candidateImageUrls: row.candidateImageUrls,
-    selectedImageUrls: row.selectedImageUrls,
-    shopifyProductId: row.shopifyProductId,
-    shopifyVariantId: row.shopifyVariantId,
-    publishedAt: row.publishedAt,
-    updatedAt: row.updatedAt,
-  };
-}
+import { memoryListItems } from "@/lib/memory-store";
+import { itemRowToDto } from "@/lib/serialize-item";
 
 export async function GET(req: Request) {
   const authResult = await requireSession();
@@ -56,6 +29,23 @@ export async function GET(req: Request) {
     return Response.json({ error: "Invalid status" }, { status: 400 });
   }
 
+  if (!isDatabaseConfigured()) {
+    const { items, total } = memoryListItems({
+      status: status ?? undefined,
+      manifestId: manifestId ?? undefined,
+      page,
+      pageSize,
+    });
+    return Response.json({
+      items: items.map((row) => itemRowToDto(row)),
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize) || 1,
+    });
+  }
+
+  const db = getDb();
   const conditions = [];
   if (status) conditions.push(eq(inventoryItems.status, status));
   if (manifestId) conditions.push(eq(inventoryItems.manifestId, manifestId));
@@ -79,7 +69,7 @@ export async function GET(req: Request) {
     .offset(offset);
 
   return Response.json({
-    items: rows.map(serializeItem),
+    items: rows.map((row) => itemRowToDto(row)),
     page,
     pageSize,
     total: Number(total),

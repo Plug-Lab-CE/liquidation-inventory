@@ -1,10 +1,11 @@
 import "dotenv/config";
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
-import { db } from "../src/db";
+import { getDb } from "../src/db";
 import { users } from "../src/db/schema";
 
 async function main() {
+  const db = getDb();
   const adminPass = process.env.SEED_ADMIN_PASSWORD ?? "admin123";
   const empPass = process.env.SEED_EMPLOYEE_PASSWORD ?? "employee123";
 

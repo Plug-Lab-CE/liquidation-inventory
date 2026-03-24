@@ -1,18 +1,22 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 
-const g = globalThis as unknown as { __liq_pool?: pg.Pool };
+type Db = NodePgDatabase<typeof schema>;
 
-function getPool(): pg.Pool {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error("DATABASE_URL is not set");
-  }
-  if (!g.__liq_pool) {
-    g.__liq_pool = new pg.Pool({ connectionString: url });
-  }
-  return g.__liq_pool;
+const g = globalThis as unknown as { __liq_pool?: pg.Pool; __liq_db?: Db };
+
+export function isDatabaseConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL?.trim());
 }
 
-export const db = drizzle(getPool(), { schema });
+export function getDb() {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is not set");
+  }
+  if (!g.__liq_db) {
+    g.__liq_pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    g.__liq_db = drizzle(g.__liq_pool, { schema });
+  }
+  return g.__liq_db;
+}

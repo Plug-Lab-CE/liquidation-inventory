@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { getDb, isDatabaseConfigured } from "@/db";
 import { auditLogs } from "@/db/schema";
 import { isAuthDevBypassEnabled } from "@/lib/dev-bypass";
 
@@ -9,7 +9,8 @@ export async function writeAudit(params: {
   entityId: string;
   payload?: Record<string, unknown>;
 }) {
-  await db.insert(auditLogs).values({
+  if (!isDatabaseConfigured()) return;
+  await getDb().insert(auditLogs).values({
     userId: isAuthDevBypassEnabled() ? undefined : (params.userId ?? undefined),
     action: params.action,
     entityType: params.entityType,
