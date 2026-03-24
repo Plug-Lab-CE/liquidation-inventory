@@ -1,8 +1,12 @@
 "use client";
 
 import type { ItemDto } from "@/lib/api-types";
+import {
+  extractDroppedImages,
+  isPlausibleHttpImageUrl,
+} from "@/lib/extract-dropped-images";
 import { imageSrcForDisplay } from "@/lib/image-display";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 
 const LOOKUP_STAGE_MESSAGES: { ms: number; label: string }[] = [
   { ms: 0, label: "Sending product title, brand, and UPC to OpenAI…" },
@@ -34,6 +38,8 @@ export function ItemEditor({
   const [lookupProgress, setLookupProgress] = useState<number | null>(null);
   const [lookupLabel, setLookupLabel] = useState("");
   const lookupTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const photoDropDepth = useRef(0);
+  const [photosDropActive, setPhotosDropActive] = useState(false);
 
   const clearLookupTicker = useCallback(() => {
     if (lookupTickRef.current) {
@@ -70,6 +76,75 @@ export function ItemEditor({
     },
     [item.id, onSaved],
   );
+
+  const uploadImageFileAndRefresh = useCallback(
+    async (file: File): Promise<string[] | null> => {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch(`/api/items/${item.id}/upload-image`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { selectedImageUrls: string[] };
+      setLocal((p) => ({ ...p, selectedImageUrls: data.selectedImageUrls }));
+      onSaved();
+      return data.selectedImageUrls;
+    },
+    [item.id, onSaved],
+  );
+
+  async function handlePhotoDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    photoDropDepth.current = 0;
+    setPhotosDropActive(false);
+
+    if (busy) return;
+
+    const { files, urls } = extractDroppedImages(e.dataTransfer);
+    const validUrls = urls.filter(isPlausibleHttpImageUrl);
+
+    if (files.length === 0 && validUrls.length === 0) {
+      setMsg(
+        "No images in that drop. Drag the picture from Google Images (not the page tab), or drop an image file.",
+      );
+      return;
+    }
+
+    setBusy(true);
+    setMsg(null);
+
+    let selected = [...(local.selectedImageUrls ?? [])];
+
+    try {
+      for (const f of files) {
+        const next = await uploadImageFileAndRefresh(f);
+        if (!next) {
+          setMsg("Could not upload one or more dropped files.");
+          break;
+        }
+        selected = next;
+      }
+
+      if (validUrls.length > 0) {
+        const merged = [...new Set([...selected, ...validUrls])];
+        const final = merged.slice(0, 10);
+        const overflow = merged.length - final.length;
+        if (overflow > 0) {
+          setMsg(`At most 10 photos — ${overflow} link(s) were not added.`);
+        }
+        const sameLen = final.length === selected.length;
+        const sameItems =
+          sameLen && final.every((u, i) => u === selected[i]);
+        if (!sameItems) {
+          await patch({ selectedImageUrls: final });
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function runImageLookup() {
     setBusy(true);
@@ -310,6 +385,57 @@ export function ItemEditor({
               <p className="mt-1 text-xs text-zinc-500">
                 Select thumbnails to publish. AI uses OpenAI web search when available.
               </p>
+              <div
+                role="region"
+                aria-label="Drop zone for photos"
+                className={`mt-3 flex min-h-[128px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                  photosDropActive
+                    ? "border-emerald-500 bg-emerald-50"
+                    : "border-zinc-300 bg-zinc-50 hover:border-zinc-400"
+                } ${busy ? "opacity-60" : ""}`}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  photoDropDepth.current += 1;
+                  setPhotosDropActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  photoDropDepth.current -= 1;
+                  if (photoDropDepth.current <= 0) {
+                    photoDropDepth.current = 0;
+                    setPhotosDropActive(false);
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(e) => void handlePhotoDrop(e)}
+              >
+                <svg
+                  className={`h-10 w-10 shrink-0 ${photosDropActive ? "text-emerald-600" : "text-zinc-400"}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  aria-hidden
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                  />
+                </svg>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-zinc-800">Drop images here</p>
+                  <p className="text-xs text-zinc-500">
+                    Image files, or drag pictures from Google Images into this box
+                  </p>
+                </div>
+              </div>
               {lookupProgress !== null && (
                 <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
                   <div className="mb-2 flex items-start justify-between gap-3 text-xs">
@@ -390,19 +516,11 @@ export function ItemEditor({
                     const f = e.target.files?.[0];
                     if (!f) return;
                     setBusy(true);
-                    const fd = new FormData();
-                    fd.set("file", f);
-                    const res = await fetch(`/api/items/${item.id}/upload-image`, {
-                      method: "POST",
-                      body: fd,
-                    });
+                    setMsg(null);
+                    const ok = await uploadImageFileAndRefresh(f);
                     setBusy(false);
                     e.target.value = "";
-                    if (res.ok) {
-                      const data = await res.json();
-                      setLocal((p) => ({ ...p, selectedImageUrls: data.selectedImageUrls }));
-                      onSaved();
-                    }
+                    if (!ok) setMsg("Upload failed");
                   }}
                 />
                 Upload photo file
