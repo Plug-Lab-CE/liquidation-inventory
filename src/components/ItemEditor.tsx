@@ -32,7 +32,6 @@ export function ItemEditor({
   onSaved: () => void;
 }) {
   const [local, setLocal] = useState(item);
-  const [manualUrl, setManualUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [lookupProgress, setLookupProgress] = useState<number | null>(null);
@@ -103,7 +102,12 @@ export function ItemEditor({
     if (busy) return;
 
     const { files, urls } = extractDroppedImages(e.dataTransfer);
-    const validUrls = urls.filter(isPlausibleHttpImageUrl);
+    let validUrls = urls.filter(isPlausibleHttpImageUrl);
+    // Browsers often attach both a File and the page’s image URL for one drag (e.g. Google Images).
+    // Uploading the file already adds the photo; merging URLs would duplicate it.
+    if (files.length > 0) {
+      validUrls = [];
+    }
 
     if (files.length === 0 && validUrls.length === 0) {
       setMsg(
@@ -197,20 +201,6 @@ export function ItemEditor({
       clearLookupTicker();
       setBusy(false);
     }
-  }
-
-  async function addManualUrl() {
-    const u = manualUrl.trim();
-    if (!u) return;
-    try {
-      new URL(u);
-    } catch {
-      setMsg("Invalid URL");
-      return;
-    }
-    const next = [...(local.selectedImageUrls ?? []), u];
-    await patch({ selectedImageUrls: next });
-    setManualUrl("");
   }
 
   function toggleSelected(url: string) {
@@ -489,24 +479,7 @@ export function ItemEditor({
                   );
                 })}
               </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
-                  className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                  value={manualUrl}
-                  onChange={(e) => setManualUrl(e.target.value)}
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void addManualUrl()}
-                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                >
-                  Add URL
-                </button>
-              </div>
-              <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-zinc-600">
+              <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-zinc-600">
                 <input
                   type="file"
                   accept="image/*"
