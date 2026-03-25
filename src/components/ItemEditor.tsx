@@ -501,13 +501,13 @@ export function ItemEditor({
                   <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-stretch">
                     <div className="flex min-h-[42px] min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-zinc-300 bg-white focus-within:ring-2 focus-within:ring-zinc-400">
                       <span
-                        className="flex shrink-0 items-center border-r border-zinc-200 bg-zinc-50 px-3 font-mono text-sm text-zinc-600"
+                        className="flex shrink-0 items-center border-r border-zinc-200 bg-zinc-50 px-3 font-mono text-sm text-emerald-600"
                         aria-hidden
                       >
                         $
                       </span>
                       <input
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 font-mono outline-none"
+                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 font-mono text-emerald-600 outline-none"
                         inputMode="decimal"
                         value={local.salePrice ?? ""}
                         onChange={(e) => setLocal((p) => ({ ...p, salePrice: e.target.value }))}
